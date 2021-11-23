@@ -2,17 +2,14 @@ package com.task.core.controller;
 
 import com.task.core.controller.advices.TaskNotCreatedException;
 import com.task.core.http.StatusResponse;
+import com.task.core.messaging.ReceivedTaskQueue;
 import com.task.core.messaging.TaskStatus;
 import com.task.core.model.Task;
 import com.task.core.http.TaskRegistrationNumberResponse;
 import com.task.core.service.TaskService;
-
-import org.springframework.amqp.core.Queue;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
 import javax.persistence.EntityNotFoundException;
 
 @RestController
@@ -20,16 +17,17 @@ import javax.persistence.EntityNotFoundException;
 public class TaskRestController {
 
     @Autowired
-    private RabbitTemplate rabbitTemplate;
-
-    @Autowired
-    private Queue taskQueue;
+    private ReceivedTaskQueue<String> receivedTaskQueue;
 
     @Autowired
     private TaskService taskService;
 
     @GetMapping("/receive") //1
     public TaskRegistrationNumberResponse taskRegistrationNumber(@RequestParam String taskName) {
+
+        /*for (int i=0; i< 100; i++) {
+            receivedTaskQueue.add(taskName+i);
+        }*/
 
         Task newTask = taskService.getTask(taskName);
         if (newTask == null) {
@@ -41,7 +39,7 @@ public class TaskRestController {
 
         if (newTask == null) throw new TaskNotCreatedException();
 
-        rabbitTemplate.convertAndSend(taskQueue.getName(), taskName);
+        receivedTaskQueue.add(taskName);
         return new TaskRegistrationNumberResponse(newTask.getTaskId());
     }
 

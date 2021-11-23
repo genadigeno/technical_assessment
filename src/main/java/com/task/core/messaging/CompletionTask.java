@@ -6,11 +6,12 @@ import com.task.core.model.Task;
 import com.task.core.service.TaskService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
+
 
 @Component
 public class CompletionTask {
@@ -19,16 +20,55 @@ public class CompletionTask {
     @Autowired
     private TaskService taskService;
 
+    @Autowired
+    private RunningTaskQueue<String> runningTaskQueue;
+
+    @Autowired
+    private ReceivedTaskQueue<String> receivedTaskQueue;
+
+    private final RestTemplate restTemplate = new RestTemplate();
+
     @Value("${external.url}")
     private String baseUrl;
 
-    @RabbitListener(queues = "#{taskQueue.name}")
-    public void receiveTasks(String taskName) { //test on delay time
+    @Scheduled(fixedDelay = 2000)
+    public void receiveTasks() {
+        LOGGER.info("#### Size of running task queue: {} ####", runningTaskQueue.size());
+        LOGGER.info("#### Size of received task queue: {} ####", receivedTaskQueue.size());
 
-        RestTemplate restTemplate = new RestTemplate();
+        /*
+        * received queue-დან წაკითხვა, მერე შეამოწმებს თუ არის ადგილი running queue-ში
+        * და თუ არის შეინახავს running queue-ში ხოლო received queue-დან ამოიღებს.
+        * */
+        if (!receivedTaskQueue.isEmpty() && runningTaskQueue.hasEnoughSpace()) {
+            LOGGER.info("Total number of tasks which have to be added: {}", runningTaskQueue.totalFreePlaces());
+
+            //რამდენი ცარიელი ადგილიც აქვს იმდენი ახალი task დაემატება.
+            for (int i = 1; i <= runningTaskQueue.totalFreePlaces(); i++) {
+                String task = receivedTaskQueue.poll();
+                LOGGER.warn("A new task \"{}\" added to Running Task Queue", task);
+                runningTaskQueue.add(task);
+                runningTaskQueue.takePlace(); //+1 ადგილი დაკავდება. (შეიძლება ეს ფუნქცია add()-ში ჩაემატოს და არა აქ.)
+            }
+        }
+
+        //running queue-დან წაკითხვა და შესაბამისი პროცესის გაშვება.
+        for (int i = 1; i <= runningTaskQueue.size(); i++) {
+            String taskName = runningTaskQueue.poll();
+
+            //ცალკე ნაკადებად ვუშვებ.
+            new Thread(() -> updateTaskStatus(taskName), "thread-"+i+"-"+taskName).start();
+        }
+    }
+
+    private void updateTaskStatus(String taskName) {
         try {
-            StatusResponse response = restTemplate.getForObject(baseUrl+taskName, StatusResponse.class);
-            System.out.println(response);
+            if (taskName.lastIndexOf("5") > -1) Thread.sleep(10000);
+            else if (taskName.lastIndexOf("15") > -1) Thread.sleep(10000);
+            else if (taskName.lastIndexOf("25") > -1) Thread.sleep(10000);
+            else if (taskName.lastIndexOf("35") > -1) Thread.sleep(10000);
+
+            /*StatusResponse response = restTemplate.getForObject(baseUrl+taskName, StatusResponse.class);
 
             Task task = taskService.getTask(taskName);
             if (task != null) {
@@ -50,11 +90,17 @@ public class CompletionTask {
                 taskService.save(task);
             } else {
                 LOGGER.warn("Task \"{}\" not found in database", taskName);
-            }
+            }*/
+
         } catch (NullPointerException e) {
             LOGGER.error(e.getMessage());
         } catch (UnknownResultException e) {
             LOGGER.warn(e.getMessage());
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } finally {
+            LOGGER.info("Task \"{}\" has been COMPLETED!", taskName);
+            runningTaskQueue.freePlace();//Task-ის დასრულების შემდეგ +1 ადგილის გათავისუფლება.
         }
     }
 
