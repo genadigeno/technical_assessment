@@ -31,7 +31,7 @@ public class CompletionTask {
     @Value("${external.url}")
     private String baseUrl;
 
-    @Scheduled(fixedDelay = 2000)
+    @Scheduled(fixedDelay = 100)
     public void receiveTasks() {
         LOGGER.info("#### Size of running task queue: {} ####", runningTaskQueue.size());
         LOGGER.info("#### Size of received task queue: {} ####", receivedTaskQueue.size());
